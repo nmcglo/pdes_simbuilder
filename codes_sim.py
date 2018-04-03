@@ -31,6 +31,8 @@ class CodesSim(object):
         else:
             self.other_options = other_options
 
+        self.workload_manager = None
+
         self.call_str = None
 
     @staticmethod
@@ -51,22 +53,27 @@ class CodesSim(object):
             self.call_str += ' -- %s'%self.codes_config_path
             return self.call_str
 
+    def load_workload_manager(self, wlm):
+        self.workload_manager = wlm
+
     def run_sim(self):
         call_str = self.get_call_str()
         call(call_str, shell=True)
 
 
 class Allocator(object):
-    def __init__(self, allocation_script_path, out_file_path, alloc_method, num_terms, alloc_length):
-        self.alloc_script_path = allocation_script_path
+    def __init__(self, alloc_script_path, out_file_path, alloc_method, num_terms, workloads):
+        self.alloc_script_path = alloc_script_path
         self.alloc_out_file_path = out_file_path
         self.alloc_method = alloc_method
         self.num_terminals = num_terms
-        self.alloc_length = alloc_length
+        self.workloads = workloads
 
     def allocate(self):
         print("Running Allocation Script...\nAlloc Config:")
-        alloc_config_string = "%s\n%s\n%s"%(self.alloc_method, self.num_terminals, self.alloc_length)
+        alloc_config_string = "%s\n%s\n"%(self.alloc_method, self.num_terminals)
+        for wl in self.workloads:
+            alloc_config_string += "%d "%wl.ranks
         with open("temp.conf", "w") as f:
             f.write(alloc_config_string)
 
@@ -76,6 +83,24 @@ class Allocator(object):
         call(alloc_call_str, shell=True)
         call('rm temp.conf', shell=True)
 
+class WorkloadManager(object):
+    def __init__(self):
+        self.workload_conf_filename = "workload_temp.conf"
+        self.workloads = []
+
+    def set_workload_conf_filename(self, filename):
+        self.workload_conf_filename = filename
+
+    def add_workload(self, wl):
+        self.workloads.append(wl)
+
+    def get_workloads(self):
+        return self.workloads
+
+    def write_config(self, out_file_path):
+        with open(out_file_path, 'w') as f:
+            for wl in self.workloads:
+                f.write("%s %s\n"%(wl.ranks, wl.workload_name))
 
 class Workload(ABC):
     @abstractmethod
@@ -85,28 +110,29 @@ class Workload(ABC):
         self.ranks = 0
 
     @staticmethod
-    def factory(workload_name):
-        if workload_name == "lammps": return Lammps_Workload()
-        if workload_name == "nekbone": return Nekbone_Workload()
-        if workload_name == "synth": return Synthetic_Workload()
-
-    def writeConfig(self, out_file_path):
-        with open(out_file_path, 'w') as f:
-            f.write("%s %s"%(self.ranks, self.workload_name))
-
+    def factory(workload_name, ranks=None):
+        if ranks is not None:
+            if workload_name == "lammps": return Lammps_Workload(ranks)
+            if workload_name == "nekbone": return Nekbone_Workload(ranks)
+            if workload_name == "synth": return Synthetic_Workload(ranks)
+        if ranks is None: #we don't want to pass None to the constructor and end up ignoring the default value
+            if workload_name == "lammps": return Lammps_Workload()
+            if workload_name == "nekbone": return Nekbone_Workload()
+            if workload_name == "synth": return Synthetic_Workload()
 
 class Synthetic_Workload(Workload):
-    def __init__(self):
-        self.workload_name = 'synthetic'
+    def __init__(self, ranks=1024):
+        self.workload_name = 'synthetic1' #random uniform
+        self.ranks = ranks
 
 class Lammps_Workload(Workload):
-    def __init__(self):
+    def __init__(self, ranks=1024):
         self.workload_name = 'lammps'
         self.workload_type = 'online'
-        self.ranks = 1024
+        self.ranks = ranks
 
 class Nekbone_Workload(Workload):
-    def __init__(self):
+    def __init__(self, ranks=1000):
         self.workload_name = 'nekbone'
         self.workload_type = 'online'
-        self.ranks = 1000
+        self.ranks = ranks
